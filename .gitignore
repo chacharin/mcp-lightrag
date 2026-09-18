@@ -1,0 +1,29 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets -- never commit real config
+.env
+
+# Live API snapshot pulled from the running LightRAG server (Phase 0.4) --
+# machine-specific, not part of the source tree
+openapi.live.json
+
+# Editor/OS cruft
+.vscode/
+.idea/
+.DS_Store
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+
