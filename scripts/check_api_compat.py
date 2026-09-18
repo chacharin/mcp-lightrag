@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Check every (method, path) this project uses against a live LightRAG
 server's OpenAPI schema (plan.md Phase 4.3).
 
