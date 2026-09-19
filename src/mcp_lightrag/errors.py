@@ -10,12 +10,27 @@ This directly targets the bug this project exists to fix: the community
 lightrag-mcp wrapper's generated client silently turned any non-200/422
 response into `None`, which its formatter then rendered as the literal
 string "None" inside a `{"status": "success", ...}` envelope.
+
+Subclassing `mcp`'s own `ToolError` matters just as much as the message
+text: `mcp.server.mcpserver`'s tool runner only forwards an exception's
+message to the calling agent when it is a `ToolError` (an "anticipated"
+failure) -- any other exception is treated as a crash and replaced with a
+bare "Error executing tool <name>", discarding everything below. Found the
+hard way in Phase 6: `insert_text` raised a plain-`Exception`-based
+`LightRAGError` with a precise "A valid file_source is required" message,
+and Hermes still only ever saw "Error executing tool insert_text", because
+`LightRAGClientError` didn't inherit from `ToolError`. Without this base
+class, every one of this client's errors -- not just this one -- would
+reach the agent as that same content-free message, silently reintroducing
+the "fails, but doesn't say why" bug this project exists to fix.
 """
 
 from __future__ import annotations
 
+from mcp.server.mcpserver.exceptions import ToolError
 
-class LightRAGClientError(Exception):
+
+class LightRAGClientError(ToolError):
     """Base class for every error this client raises."""
 
 

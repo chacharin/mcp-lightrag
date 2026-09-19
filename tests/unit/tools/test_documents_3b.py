@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import httpx2 as httpx
 import pytest
@@ -158,7 +159,9 @@ async def test_upload_directory_reports_per_file_results(tmp_path) -> None:
     assert result["uploaded"] == 1
     assert result["skipped"] == 1
     assert result["failed"] == 1
-    statuses = {r["file"].split("/")[-1]: r["status"] for r in result["results"]}
+    # str(entry) uses the platform's native separator (backslash on Windows),
+    # so split("/") silently fails there -- Path(...).name handles either.
+    statuses = {Path(r["file"]).name: r["status"] for r in result["results"]}
     assert statuses["a.pdf"] == "success"
     assert statuses["b.md"] == "error"
     assert statuses["c.zip"] == "skipped"
