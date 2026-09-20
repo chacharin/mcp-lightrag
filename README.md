@@ -41,6 +41,8 @@ Every setting can be passed as a CLI flag or an environment variable (flag wins 
 | `MCP_SERVER_NAME` | `--server-name` | `lightrag` | Name this server reports to MCP clients. |
 | `MCP_TRANSPORT` | `--transport` | `stdio` | `stdio` or `streamable-http`. |
 | `LOG_LEVEL` | `--log-level` | `INFO` | Logging verbosity. Always written to stderr, never stdout, so it never corrupts the stdio JSON-RPC stream. |
+| `MCP_CLASSIFICATION_LABEL` | — | (empty) | Tags every tool's result with this classification (e.g. `secret`) when this process is one profile's MCP server for one LightRAG classification tier -- see [Phase 7](#phase-7-classification-tiers). |
+| `MCP_AUDIT_LOG` | — | (empty; stderr) | Path to a JSON-lines audit log of every tool call. Leave empty to write the same lines to stderr instead. |
 
 ## Using with Hermes Agent
 
@@ -83,6 +85,33 @@ To upgrade later: push a new tag (e.g. `v0.1.1`), update `@v0.1.0` in `config.ya
 **Knowledge graph, destructive (2)** — `delete_entity` ⚠️, `delete_relation` ⚠️
 
 **System (1)** — `health` (checks both that LightRAG is reachable *and* that the configured credentials actually work, by also calling an authenticated endpoint — `GET /health` alone is a public liveness probe that returns 200 even with a missing or wrong API key)
+
+## Phase 7: classification tiers
+
+Running several instances of this server, each pointed at its own LightRAG
+container and tagged with `MCP_CLASSIFICATION_LABEL`, is how multiple
+Hermes profiles at different classification levels get access to different
+knowledge bases -- see `plan.md` section 7 for the full architecture
+(Discord role -> Hermes profile -> mcp-lightrag process -> LightRAG
+instance, each layer with its own scoped credentials). This server never
+trusts a classification level the calling agent sends as a tool parameter;
+the only sources of truth are which LightRAG instance a given process is
+configured to talk to, and the label that process itself is configured
+with.
+
+When `MCP_CLASSIFICATION_LABEL` is set:
+
+- every tool's result gains a `"classification"` field with that value
+- the server's `instructions` (sent to the client at connect time) note the
+  classification level
+
+Every tool call is always logged as one JSON line -- to `MCP_AUDIT_LOG` if
+set, otherwise to stderr alongside the regular application log -- recording
+the timestamp, tool name, classification, `success`/`error` status, and a
+SHA-256 hash of the call's parameters. The parameters and the tool's result
+content are never written to this log, so a classified query or document
+never ends up sitting in a log file; the hash exists only to let two audit
+lines be recognised as the same call.
 
 ## Development
 

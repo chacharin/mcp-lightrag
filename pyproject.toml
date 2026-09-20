@@ -1,6 +1,6 @@
 [project]
 name = "mcp-lightrag"
-version = "0.1.1"
+version = "0.1.2"
 description = "MCP server bridging an AI agent (e.g. Nous Hermes Agent) to a LightRAG knowledge-graph server"
 readme = "README.md"
 license = "MIT"

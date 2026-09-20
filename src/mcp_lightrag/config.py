@@ -44,6 +44,14 @@ class Settings(BaseSettings):
         default="INFO", validation_alias="LOG_LEVEL"
     )
 
+    # Phase 7 (plan.md section 7.3.2): classification-tier labelling and
+    # audit logging. Both are plain env-var settings only -- plan.md does
+    # not call for CLI flags for these two, unlike every field above.
+    mcp_classification_label: str = Field(
+        default="", validation_alias="MCP_CLASSIFICATION_LABEL"
+    )
+    mcp_audit_log: str = Field(default="", validation_alias="MCP_AUDIT_LOG")
+
     @field_validator("lightrag_url")
     @classmethod
     def _validate_url(cls, v: str) -> str:
