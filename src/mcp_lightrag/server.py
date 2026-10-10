@@ -3,8 +3,8 @@
 Builds the `MCPServer` instance (mcp 2.x's renamed `FastMCP`), wires its
 lifespan to open a single `LightRAGClient` on startup and close it on
 shutdown, registers every tool from `tools/` (plan.md section 4), and -- if
-`MCP_CLASSIFICATION_LABEL` and/or `MCP_AUDIT_LOG` are set -- installs the
-Phase 7 audit/labelling middleware from audit.py (plan.md section 7.3.2).
+`MCP_AUDIT_LOG` is set -- installs the
+audit middleware from audit.py (plan.md section 7.3.2).
 """
 
 from __future__ import annotations
@@ -33,21 +33,6 @@ INSTRUCTIONS = (
     "means LightRAG could not be reached or rejected the request, not that "
     "there are zero documents."
 )
-
-
-def _build_instructions(settings: Settings) -> str:
-    """`INSTRUCTIONS`, plus a classification note when this instance is
-    tagged (plan.md 7.3.2b: "ใส่ชั้นความลับไว้ใน instructions ของ server").
-    """
-    if not settings.mcp_classification_label:
-        return INSTRUCTIONS
-    return (
-        f"{INSTRUCTIONS}\n\n"
-        f"This server's knowledge base is classified at the "
-        f"'{settings.mcp_classification_label}' level. Every tool result is "
-        f"tagged with this classification; never restate information from "
-        f"here as belonging to a lower classification level."
-    )
 
 
 @dataclass
@@ -82,7 +67,7 @@ def build_server(settings: Settings) -> MCPServer[AppContext]:
 
     server = MCPServer(
         name=settings.server_name,
-        instructions=_build_instructions(settings),
+        instructions=INSTRUCTIONS,
         lifespan=app_lifespan,
         middleware=[build_audit_middleware(settings)],
     )

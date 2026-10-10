@@ -1,5 +1,4 @@
-"""Unit tests for audit.py (plan.md section 7.3.2: classification labelling
-and audit logging, phase 7's addition to mcp-lightrag).
+"""Unit tests for audit.py (plan.md section 7.3.2: audit logging).
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ from mcp_types import CallToolResult, TextContent
 from mcp_lightrag.audit import (
     _configure_audit_logger,
     _hash_params,
-    _label_result,
     build_audit_middleware,
 )
 from mcp_lightrag.config import Settings
@@ -46,37 +44,6 @@ class TestHashParams:
     def test_never_contains_the_argument_values(self) -> None:
         digest = _hash_params({"query": "TOP SECRET PROJECT NAME"})
         assert "TOP SECRET PROJECT NAME" not in digest
-
-
-class TestLabelResult:
-    def test_attaches_classification_to_structured_and_text_content(self) -> None:
-        result = _dict_result({"docs": 5})
-
-        labelled = _label_result(result, "ลับมาก")
-
-        assert labelled.structured_content == {"docs": 5, "classification": "ลับมาก"}
-        assert json.loads(labelled.content[0].text) == {
-            "docs": 5,
-            "classification": "ลับมาก",
-        }
-
-    def test_noop_when_no_classification_configured(self) -> None:
-        result = _dict_result({"docs": 5})
-
-        labelled = _label_result(result, "")
-
-        assert labelled.structured_content == {"docs": 5}
-        assert json.loads(labelled.content[0].text) == {"docs": 5}
-
-    def test_noop_on_error_result(self) -> None:
-        """An error result has nothing meaningful to classify, and must not
-        gain a fabricated classification tag."""
-        result = _dict_result({"detail": "boom"}, is_error=True)
-
-        labelled = _label_result(result, "ลับที่สุด")
-
-        assert labelled.structured_content == {"detail": "boom"}
-        assert "classification" not in json.loads(labelled.content[0].text)
 
 
 class TestConfigureAuditLogger:
@@ -145,7 +112,7 @@ class TestAuditMiddleware:
         assert log_path.read_text(encoding="utf-8") == ""
         logging.getLogger("mcp_lightrag.audit").handlers.clear()
 
-    async def test_logs_and_labels_a_successful_tool_call(
+    async def test_logs_a_successful_tool_call(
         self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         logging.getLogger("mcp_lightrag.audit").handlers.clear()
@@ -153,25 +120,22 @@ class TestAuditMiddleware:
         settings = self._settings(
             monkeypatch,
             MCP_AUDIT_LOG=str(log_path),
-            MCP_CLASSIFICATION_LABEL="ลับ",
         )
         middleware = build_audit_middleware(settings)
         ctx = _FakeCtx("tools/call", {"name": "health", "arguments": {}})
         raw_result = _dict_result({"status": "healthy"})
 
-        labelled = await middleware(ctx, lambda _ctx: _call_next_returning(raw_result))
+        returned = await middleware(ctx, lambda _ctx: _call_next_returning(raw_result))
 
-        assert labelled.structured_content["classification"] == "ลับ"
+        assert returned.structured_content == {"status": "healthy"}
         for handler in logging.getLogger("mcp_lightrag.audit").handlers:
             handler.flush()
         event = json.loads(log_path.read_text(encoding="utf-8").strip())
         assert event["tool"] == "health"
-        assert event["classification"] == "ลับ"
         assert event["status"] == "success"
         assert set(event) == {
             "timestamp",
             "tool",
-            "classification",
             "params_hash",
             "status",
         }

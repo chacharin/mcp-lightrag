@@ -99,8 +99,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help=(
             "Name this MCP server reports to clients (env: MCP_SERVER_NAME, "
-            "default: lightrag). Used to run several instances against "
-            "different LightRAG classification tiers -- see plan.md Phase 7."
+            "default: lightrag). Used to tell several instances apart."
         ),
     )
     parser.add_argument(

@@ -1,11 +1,9 @@
-"""Phase 7 cross-cutting instrumentation (plan.md section 7.3.2):
+"""Cross-cutting audit logging (plan.md section 7.3.2):
 
-(a) attach this process's classification label to every tool's result
-(b) [handled in server.py's INSTRUCTIONS, not here]
-(c) write a JSON-lines audit log of every tool call: timestamp, tool name,
-    classification, result status, and a hash of the parameters -- never
-    the parameters or the tool's return value themselves, so a classified
-    query never ends up sitting in a log file.
+Write a JSON-lines audit log of every tool call: timestamp, tool name,
+result status, and a hash of the parameters -- never the parameters or the
+tool's return value themselves, so a sensitive query never ends up sitting
+in a log file.
 
 Implemented as a single `ServerMiddleware` (see server.py's `build_server`)
 rather than by editing each of the 33 tool functions in tools/*.py: a
@@ -40,7 +38,7 @@ from mcp.server.context import (
     ServerRequestContext,
 )
 from mcp.shared.exceptions import MCPError
-from mcp_types import CallToolResult, TextContent
+from mcp_types import CallToolResult
 
 from mcp_lightrag.config import Settings
 
@@ -76,41 +74,11 @@ def _hash_params(arguments: dict[str, Any]) -> str:
     the same arguments always hash the same way regardless of the order the
     calling agent supplied them in). Lets the audit log correlate repeated
     or identical calls without ever storing the argument values themselves,
-    which may be classified (plan.md 7.3.2c: "hash ของพารามิเตอร์ (ไม่เก็บ
+    which may be sensitive (plan.md 7.3.2c: "hash ของพารามิเตอร์ (ไม่เก็บ
     เนื้อหาลับลง log)").
     """
     canonical = json.dumps(arguments, sort_keys=True, default=str, ensure_ascii=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def _label_result(result: CallToolResult, classification: str) -> CallToolResult:
-    """Attach `classification` to a successful call's structured content and
-    its text content, in place, so the label reaches the calling agent
-    whichever one it reads (plan.md 7.3.2a). A no-op when there is no label
-    configured, the call ended in error (nothing meaningful to classify),
-    or the result isn't the "one JSON object" shape every tool here
-    declares (`-> dict[str, Any]`) -- a shape mismatch is left untouched
-    rather than guessed at.
-    """
-    if not classification or result.is_error:
-        return result
-
-    if isinstance(result.structured_content, dict):
-        result.structured_content = {
-            **result.structured_content,
-            "classification": classification,
-        }
-
-    if len(result.content) == 1 and isinstance(result.content[0], TextContent):
-        try:
-            parsed = json.loads(result.content[0].text)
-        except (json.JSONDecodeError, TypeError):
-            parsed = None
-        if isinstance(parsed, dict):
-            parsed["classification"] = classification
-            result.content[0].text = json.dumps(parsed, indent=2, ensure_ascii=False)
-
-    return result
 
 
 def build_audit_middleware(settings: Settings) -> ServerMiddleware[Any]:
@@ -118,15 +86,13 @@ def build_audit_middleware(settings: Settings) -> ServerMiddleware[Any]:
     to `MCPServer(..., middleware=[...])`.
 
     Bound to one `Settings` instance for the process's lifetime (same as
-    every other setting in config.py): the classification label and audit
-    log destination are fixed once at startup. Every `tools/call` request
-    gets exactly one audit line -- `status: "success"` or `"error"` -- and,
-    on success, its result is labelled. Every other request method
+    every other setting in config.py): the audit log destination is fixed once
+    at startup. Every `tools/call` request gets exactly one audit line --
+    `status: "success"` or `"error"`. Every other request method
     (`initialize`, `resources/list`, ...) passes straight through untouched
     and unlogged.
     """
     audit_logger = _configure_audit_logger(settings.mcp_audit_log)
-    classification = settings.mcp_classification_label
 
     async def audit_middleware(
         ctx: ServerRequestContext[Any, Any], call_next: CallNext
@@ -139,7 +105,6 @@ def build_audit_middleware(settings: Settings) -> ServerMiddleware[Any]:
         event: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
             "tool": tool_name,
-            "classification": classification or None,
             "params_hash": _hash_params(arguments),
         }
 
@@ -158,7 +123,6 @@ def build_audit_middleware(settings: Settings) -> ServerMiddleware[Any]:
 
         if isinstance(result, CallToolResult):
             event["status"] = "error" if result.is_error else "success"
-            result = _label_result(result, classification)
         else:
             event["status"] = "success"
 
