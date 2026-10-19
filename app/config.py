@@ -70,6 +70,7 @@ class Settings:
     insert_timeout: float
     query_extra_params: dict
     enable_insert: bool
+    enable_delete: bool
     kb_description: str
     host: str
     port: int
@@ -87,6 +88,7 @@ class Settings:
             insert_timeout=_f("INSERT_TIMEOUT_SECONDS", "60"),
             query_extra_params=_extra_params(),
             enable_insert=_bool("ENABLE_INSERT", "true"),
+            enable_delete=_bool("ENABLE_DELETE", "false"),   # deleting cannot be undone
             kb_description=os.getenv("KB_DESCRIPTION", "").strip(),
             host=os.getenv("MCP_HOST", "0.0.0.0"),
             port=int(_f("MCP_PORT", "8700")),

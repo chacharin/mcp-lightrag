@@ -5,34 +5,12 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+from tests.mcp_client import HEADERS, call, tools
 
 
-def rpc(client, method, params=None, headers=None):
-    r = client.post("/mcp", headers={**HEADERS, **(headers or {})},
-                    json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}})
-    if r.status_code != 200:
-        return r
-    if r.headers["content-type"].startswith("text/event-stream"):
-        data = [line[6:] for line in r.text.splitlines() if line.startswith("data: ")]
-        return json.loads(data[-1])
-    return r.json()
-
-
-def tools(server):
-    with TestClient(server.app) as c:
-        return {t["name"]: t for t in rpc(c, "tools/list")["result"]["tools"]}
-
-
-def call(server, name, **arguments):
-    with TestClient(server.app) as c:
-        res = rpc(c, "tools/call", {"name": name, "arguments": arguments})["result"]
-    return res["content"][0]["text"]
-
-
-def test_both_tools_are_listed(load_server):
+def test_default_tools(load_server):
     t = tools(load_server())
-    assert set(t) == {"lightrag_query", "lightrag_insert"}
+    assert set(t) == {"lightrag_query", "lightrag_insert", "lightrag_list_documents"}
     mode = t["lightrag_query"]["inputSchema"]["properties"]["mode"]
     assert mode["enum"] == ["mix", "hybrid", "local", "global", "naive"] and mode["default"] == "hybrid"
     assert t["lightrag_query"]["inputSchema"]["required"] == ["query"]
@@ -41,7 +19,7 @@ def test_both_tools_are_listed(load_server):
 
 def test_read_only_server_has_no_insert(load_server):
     t = tools(load_server(ENABLE_INSERT="false"))
-    assert set(t) == {"lightrag_query"} and "lightrag_insert" not in t["lightrag_query"]["description"]
+    assert "lightrag_insert" not in t and "lightrag_insert" not in t["lightrag_query"]["description"]
 
 
 def test_kb_description_tells_the_agent_what_is_inside(load_server):

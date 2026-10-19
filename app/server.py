@@ -5,6 +5,10 @@ Tools
                                             the documents it drew on
   lightrag_insert(text, description="")     add a text to the knowledge base (ENABLE_INSERT=false
                                             removes this tool, leaving the server read-only)
+  lightrag_list_documents(page, page_size, status)
+                                            list the documents in the knowledge base, newest first
+  lightrag_delete(documents)                delete documents by id or name - only with ENABLE_DELETE=true,
+                                            because it cannot be undone
 
 The LightRAG key stays in this process: agents call this server, never LightRAG itself.
 """
@@ -16,6 +20,7 @@ from typing import Annotated
 import uvicorn
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ToolAnnotations
 from pydantic import Field
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -45,6 +50,17 @@ QUERY_DESCRIPTION = " ".join(filter(None, [
     "ใช้เมื่อต้องการข้อมูลหรือบริบทจากเอกสารที่จัดเก็บไว้ คำตอบจะระบุเอกสารที่ใช้อ้างอิงไว้ท้ายข้อความ",
     "หากต้องการเพิ่มเอกสารใหม่เข้าคลัง ให้ใช้ lightrag_insert" if S.enable_insert else "",
 ]))
+LIST_DESCRIPTION = (
+    "แสดงรายการเอกสารในคลังความรู้ LightRAG เรียงจากใหม่ไปเก่า พร้อมรหัส (id) ชื่อ สถานะ วันที่เพิ่ม และเนื้อหาโดยย่อ "
+    "ใช้เมื่อผู้ใช้ถามว่าในคลังมีเอกสารอะไรบ้าง ต้องการตรวจว่าเอกสารที่เพิ่งเพิ่มประมวลผลเสร็จแล้วหรือยัง "
+    "หรือต้องการหารหัสของเอกสารก่อนลบ"
+)
+DELETE_DESCRIPTION = (
+    "Delete documents from the LightRAG knowledge base. ลบเอกสารออกจากคลังความรู้ LightRAG "
+    "พร้อมข้อมูลทั้งหมดที่สกัดจากเอกสารนั้น ได้แก่ ข้อความ เวกเตอร์ เอนทิตี และความสัมพันธ์ "
+    "⚠ ลบแล้วกู้คืนไม่ได้ ต้องยืนยันชื่อเอกสารกับผู้ใช้ก่อนทุกครั้ง "
+    "และใช้ lightrag_list_documents ตรวจชื่อหรือรหัสให้ถูกต้องก่อนลบ"
+)
 MODE_DESCRIPTION = ("วิธีค้นหา: " + " · ".join(f"{m} = {MODE_HELP[m]}" for m in S.query_modes)
                     + f" (หากไม่ระบุจะใช้ {S.default_mode})")
 INSERT_DESCRIPTION = (
@@ -56,8 +72,9 @@ INSERT_DESCRIPTION = (
 mcp = MCPServer(
     name="lightrag",
     version="0.3.0",
-    instructions=("ค้นหาข้อมูลจากคลังความรู้ LightRAG"
-                  + (" และเพิ่มเอกสารเข้าคลัง" if S.enable_insert else "")
+    instructions=("ค้นหาข้อมูลและดูรายการเอกสารในคลังความรู้ LightRAG"
+                  + (" เพิ่มเอกสารเข้าคลัง" if S.enable_insert else "")
+                  + (" และลบเอกสารออกจากคลัง (ต้องยืนยันกับผู้ใช้ก่อนลบ)" if S.enable_delete else "")
                   + (f" เนื้อหาในคลัง: {S.kb_description}" if S.kb_description else "")),
 )
 
@@ -89,9 +106,38 @@ async def lightrag_insert(
     return await lightrag.insert(S, text, (description or "").strip())
 
 
-mcp.add_tool(lightrag_query, description=QUERY_DESCRIPTION)
+async def lightrag_list_documents(
+    page: Annotated[int, Field(description="หน้าที่ต้องการ เริ่มที่ 1", ge=1)] = 1,
+    page_size: Annotated[int, Field(description="จำนวนเอกสารต่อหน้า (10-200)", ge=10, le=200)] = 20,
+    status: Annotated[str, Field(description=(
+        "แสดงเฉพาะเอกสารที่มีสถานะนี้ หากเว้นว่างจะแสดงทุกสถานะ: processed = พร้อมค้นหา · "
+        "pending, parsing, analyzing, processing = กำลังประมวลผล · failed = ประมวลผลไม่สำเร็จ"),
+        json_schema_extra={"enum": ["", *lightrag.DOC_STATUSES]})] = "",
+) -> str:
+    status = (status or "").strip().lower()
+    if status and status not in lightrag.DOC_STATUSES:
+        return f"[unknown status {status!r} - use one of {', '.join(lightrag.DOC_STATUSES)}, or leave it empty]"
+    return await lightrag.list_documents(S, page, page_size, status)
+
+
+async def lightrag_delete(
+    documents: Annotated[list[str], Field(description=(
+        "รหัสเอกสาร (ขึ้นต้นด้วย doc-) หรือชื่อเอกสาร ตามที่แสดงใน lightrag_list_documents หรือในแหล่งอ้างอิงของคำตอบ "
+        "ระบุได้หลายรายการ"), min_length=1)],
+) -> str:
+    return await lightrag.delete(S, documents)
+
+
+mcp.add_tool(lightrag_query, description=QUERY_DESCRIPTION,
+             annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False))
+mcp.add_tool(lightrag_list_documents, description=LIST_DESCRIPTION,
+             annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False))
 if S.enable_insert:
-    mcp.add_tool(lightrag_insert, description=INSERT_DESCRIPTION)
+    mcp.add_tool(lightrag_insert, description=INSERT_DESCRIPTION,
+                 annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False))
+if S.enable_delete:
+    mcp.add_tool(lightrag_delete, description=DELETE_DESCRIPTION,
+                 annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=False))
 
 
 # ------------------------------------------------------------------ http app
@@ -111,7 +157,7 @@ async def health_report() -> dict:
                         + " - it must match LIGHTRAG_API_KEY of the LightRAG server")
     return {"ok": not problems, "lightrag_url": S.lightrag_url, "key_configured": state == "set",
             "lightrag": rag, "modes": S.query_modes, "default_mode": S.default_mode,
-            "insert_enabled": S.enable_insert, "auth": bool(S.auth_token), "problems": problems}
+            "insert_enabled": S.enable_insert, "delete_enabled": S.enable_delete, "auth": bool(S.auth_token), "problems": problems}
 
 
 async def health(_: Request) -> JSONResponse:

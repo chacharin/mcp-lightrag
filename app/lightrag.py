@@ -1,4 +1,5 @@
-"""Calls to the LightRAG server REST API: POST /query, POST /documents/text and the /health checks.
+"""Calls to the LightRAG server REST API: POST /query, POST /documents/text, POST /documents/paginated,
+DELETE /documents/delete_document and the /health checks.
 
 Every failure comes back as a short text that tells the agent (and the person reading its log)
 what went wrong; nothing here raises to the MCP layer.
@@ -15,6 +16,9 @@ from app.config import Settings
 
 # tests replace this with an httpx.MockTransport; None = real network
 transport: httpx.AsyncBaseTransport | None = None
+
+# document states of LightRAG 1.5 ("preprocessed" is deprecated there)
+DOC_STATUSES = ("processed", "pending", "parsing", "analyzing", "processing", "failed")
 
 # characters that would make an awkward document name in LightRAG (Thai vowel marks are kept)
 _UNSAFE_NAME = re.compile(r'[\s/\\:*?"<>|]+')
@@ -94,6 +98,86 @@ async def insert(S: Settings, text: str, description: str) -> str:
     if isinstance(data, dict):
         data = {**data, "file_source": name}
     return json.dumps(data, ensure_ascii=False)
+
+
+def _doc_row(d: dict) -> dict:
+    """The fields an agent needs to pick a document, without LightRAG's processing metadata."""
+    row = {"id": d.get("id"), "name": d.get("file_path"), "status": d.get("status"),
+           "created_at": (d.get("created_at") or "")[:19], "characters": d.get("content_length"),
+           "summary": " ".join((d.get("content_summary") or "").split())[:120]}
+    if d.get("error_msg"):
+        row["error"] = d["error_msg"]
+    return row
+
+
+async def _page(c: httpx.AsyncClient, S: Settings, page: int, page_size: int, status: str = "") -> dict:
+    body: dict = {"page": page, "page_size": page_size, "sort_field": "created_at", "sort_direction": "desc"}
+    if status:
+        body["status_filters"] = [status]
+    r = await c.post(f"{S.lightrag_url}/documents/paginated", json=body, headers=_headers(S))
+    r.raise_for_status()
+    return r.json()
+
+
+async def list_documents(S: Settings, page: int, page_size: int, status: str) -> str:
+    try:
+        async with _client(S.insert_timeout) as c:
+            data = await _page(c, S, page, page_size, status)
+    except httpx.HTTPStatusError as e:
+        return _http_error(e)
+    except httpx.HTTPError as e:
+        return _connection_error(e, S)
+    counts = {k: v for k, v in (data.get("status_counts") or {}).items() if v}
+    return json.dumps({"pagination": data.get("pagination"), "status_counts": counts,
+                       "documents": [_doc_row(d) for d in data.get("documents") or []]}, ensure_ascii=False)
+
+
+async def _resolve(c: httpx.AsyncClient, S: Settings, wanted: list[str]) -> tuple[dict, dict]:
+    """Map each wanted item (a doc-… id or a document name) to an id.
+    Returns ({item: id}, {item: why it cannot be deleted})."""
+    ids = {w: w for w in wanted if w.startswith("doc-")}
+    names = [w for w in wanted if w not in ids]
+    found: dict[str, list[str]] = {n: [] for n in names}
+    if names:
+        page = 1
+        while page <= 50:                                  # at most 10,000 documents are searched
+            data = await _page(c, S, page, 200)
+            for d in data.get("documents") or []:
+                if d.get("file_path") in found:
+                    found[d["file_path"]].append(d["id"])
+            if not (data.get("pagination") or {}).get("has_next"):
+                break
+            page += 1
+    problems = {}
+    for n, hits in found.items():
+        if len(hits) == 1:
+            ids[n] = hits[0]
+        else:
+            problems[n] = ("no document has this name or id" if not hits
+                           else f"{len(hits)} documents share this name - delete by id: {', '.join(hits)}")
+    return ids, problems
+
+
+async def delete(S: Settings, documents: list[str]) -> str:
+    wanted = list(dict.fromkeys(d.strip() for d in documents if d and d.strip()))
+    try:
+        async with _client(S.insert_timeout) as c:
+            ids, problems = await _resolve(c, S, wanted)
+            if not ids:
+                return json.dumps({"requested": {}, "not_deleted": problems}, ensure_ascii=False)
+            r = await c.request("DELETE", f"{S.lightrag_url}/documents/delete_document",
+                                json={"doc_ids": list(dict.fromkeys(ids.values()))}, headers=_headers(S))
+        r.raise_for_status()
+        data = r.json()
+    except httpx.HTTPStatusError as e:
+        return _http_error(e)
+    except httpx.HTTPError as e:
+        return _connection_error(e, S)
+    except ValueError:
+        return r.text[:4000]
+    # "deletion_started" = LightRAG removes the text, chunks and graph data in the background;
+    # "busy" = it is indexing or deleting something else - nothing was deleted, try again later
+    return json.dumps({"lightrag": data, "requested": ids, "not_deleted": problems}, ensure_ascii=False)
 
 
 async def check(S: Settings) -> dict:

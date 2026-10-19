@@ -8,6 +8,7 @@ def test_defaults_are_generic():
     s = Settings.from_env()
     assert s.lightrag_url == "http://lightrag:9621"
     assert s.query_modes == ["mix", "hybrid", "local", "global", "naive"] and s.default_mode == "hybrid"
+    assert s.enable_delete is False                 # deleting must be switched on on purpose
     assert s.enable_insert is True and s.kb_description == "" and s.auth_token == ""
     assert s.port == 8700
 
