@@ -128,16 +128,21 @@ async def lightrag_delete(
     return await lightrag.delete(S, documents)
 
 
+# every tool returns text; structured_output=False stops the SDK sending it a second time as structuredContent
 mcp.add_tool(lightrag_query, description=QUERY_DESCRIPTION,
-             annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False))
+             annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+             structured_output=False)
 mcp.add_tool(lightrag_list_documents, description=LIST_DESCRIPTION,
-             annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False))
+             annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+             structured_output=False)
 if S.enable_insert:
     mcp.add_tool(lightrag_insert, description=INSERT_DESCRIPTION,
-                 annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False))
+                 annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False),
+                 structured_output=False)
 if S.enable_delete:
     mcp.add_tool(lightrag_delete, description=DELETE_DESCRIPTION,
-                 annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=False))
+                 annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=False),
+                 structured_output=False)
 
 
 # ------------------------------------------------------------------ http app
@@ -153,8 +158,7 @@ async def health_report() -> dict:
         problems.append(f"LightRAG does not answer at LIGHTRAG_URL {S.lightrag_url} - "
                         "is it running, and on the same docker network?")
     elif rag["key_accepted"] is False:
-        problems.append("LightRAG refused LIGHTRAG_API_KEY" + (" (it is empty)" if state == "empty" else "")
-                        + " - it must match LIGHTRAG_API_KEY of the LightRAG server")
+        problems.append("LightRAG refused LIGHTRAG_API_KEY - it must match LIGHTRAG_API_KEY of the LightRAG server")
     return {"ok": not problems, "lightrag_url": S.lightrag_url, "key_configured": state == "set",
             "lightrag": rag, "modes": S.query_modes, "default_mode": S.default_mode,
             "insert_enabled": S.enable_insert, "delete_enabled": S.enable_delete, "auth": bool(S.auth_token), "problems": problems}

@@ -30,7 +30,7 @@ def _client(timeout: float) -> httpx.AsyncClient:
 
 
 def _headers(S: Settings) -> dict:
-    return {"X-API-Key": S.lightrag_api_key} if S.lightrag_api_key else {}
+    return {"X-API-Key": S.lightrag_api_key}
 
 
 def _http_error(e: httpx.HTTPStatusError) -> str:

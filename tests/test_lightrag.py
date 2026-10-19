@@ -33,10 +33,10 @@ def test_query_sends_mode_key_and_extra_params(monkeypatch, fake_lightrag):
     assert json.loads(req.content) == {"top_k": 40, "query": "ใครเป็นใคร", "mode": "mix", "stream": False}
 
 
-def test_no_key_no_header(fake_lightrag):
+def test_key_is_sent_on_every_call(fake_lightrag):
     seen = fake_lightrag(answer)
     run(lightrag.query(Settings.from_env(), "q", "hybrid"))
-    assert "X-API-Key" not in seen[0].headers
+    assert seen[0].headers["X-API-Key"] == KEY
 
 
 def test_answer_lists_its_references(fake_lightrag):
@@ -100,7 +100,8 @@ def fake_server(request):
     return httpx.Response(200 if request.headers.get("X-API-Key") == KEY else 401, json={})
 
 
-def test_check_notices_a_refused_key(fake_lightrag):
+def test_check_notices_a_refused_key(monkeypatch, fake_lightrag):
+    monkeypatch.setenv("LIGHTRAG_API_KEY", "test-key-wrong")
     fake_lightrag(fake_server)
     assert run(lightrag.check(Settings.from_env())) == {"reachable": True, "key_accepted": False, "http_status": 200}
 

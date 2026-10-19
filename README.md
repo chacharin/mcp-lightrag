@@ -37,7 +37,7 @@ LightRAG ใช้ LLM สรุปคำตอบทุกครั้งที
 
 - **Docker** (Docker Desktop หรือ Docker Engine)
 - **LightRAG server** ที่ทำงานอยู่แล้ว ([วิธีติดตั้ง](https://github.com/HKUDS/LightRAG#install-lightrag-server)) และอยู่ใน docker network เดียวกับ agent
-- **API key ของ LightRAG** คือค่า `LIGHTRAG_API_KEY` ที่ตั้งไว้ใน LightRAG server (หาก LightRAG ไม่ได้ตั้ง key ไว้ ให้เว้นว่าง)
+- **API key ของ LightRAG** คือค่า `LIGHTRAG_API_KEY` ที่ตั้งไว้ใน LightRAG server ซึ่ง**จำเป็นต้องมี** หาก LightRAG ยังไม่ได้ตั้ง key ให้ตั้งที่ LightRAG ก่อน (ดูหัวข้อ[ความปลอดภัย](#ความปลอดภัย))
 
 ### ขั้นตอนการติดตั้ง
 
@@ -150,20 +150,7 @@ agent จะเรียก `lightrag_list_documents`
 | `page_size` | `20` | จำนวนเอกสารต่อหน้า (10–200) |
 | `status` | ทุกสถานะ | แสดงเฉพาะเอกสารที่มีสถานะนี้: `processed` (พร้อมค้นหา) · `pending` `parsing` `analyzing` `processing` (กำลังประมวลผล) · `failed` (ประมวลผลไม่สำเร็จ) |
 
-เอกสารเรียงจากใหม่ไปเก่า ตัวอย่างผลลัพธ์:
-
-```json
-{
-  "pagination": {"page": 1, "page_size": 20, "total_count": 3, "total_pages": 1, "has_next": false},
-  "status_counts": {"processed": 3, "all": 3},
-  "documents": [
-    {"id": "doc-9db02b2c…", "name": "bbc-news-summary-18-10-2026", "status": "processed",
-     "created_at": "2026-10-18T04:33:14", "characters": 456, "summary": "# BBC News Summary - 18-10-2026 1. California…"}
-  ]
-}
-```
-
-เอกสารที่ประมวลผลไม่สำเร็จจะมี `error` บอกสาเหตุ
+เอกสารเรียงจากใหม่ไปเก่า แต่ละรายการมีรหัส ชื่อ สถานะ วันที่เพิ่ม จำนวนตัวอักษร และเนื้อหาโดยย่อ เอกสารที่ประมวลผลไม่สำเร็จจะมี `error` บอกสาเหตุ (ดูตัวอย่างได้ที่[รูปแบบ JSON](#ดูรายการเอกสาร-lightrag_list_documents))
 
 ### 4. ลบเอกสารออกจากคลัง
 
@@ -196,17 +183,190 @@ curl -X DELETE http://localhost:9621/documents/delete_document \
   -d '{"doc_ids": ["doc-9db02b2c…"]}'
 ```
 
-### 5. ทดสอบเครื่องมือด้วย curl
+## รูปแบบ JSON ของคำขอและผลลัพธ์
 
-หากต้องการทดสอบโดยไม่ผ่าน agent ให้ส่งคำขอแบบ MCP ไปที่ `/mcp` ได้โดยตรง เช่น
+mcp-lightrag มี 2 route
+
+| Route | ใช้ทำอะไร |
+|---|---|
+| `POST /mcp` | เรียกเครื่องมือทั้งหมดตามมาตรฐาน MCP (JSON-RPC 2.0) agent ใช้ route นี้ |
+| `GET /health` | ตรวจว่าเชื่อมต่อ LightRAG ได้และ LightRAG ยอมรับ key หรือไม่ ไม่ต้องใช้ token |
+
+### การส่งคำขอไปที่ `/mcp`
+
+ทุกคำขอต้องมี header สองตัวนี้ (และ `Authorization: Bearer <token>` หากกำหนด `MCP_AUTH_TOKEN`)
+
+```
+Content-Type: application/json
+Accept: application/json, text/event-stream
+```
+
+ผลลัพธ์จะส่งกลับในรูปแบบ Server-Sent Events คือมีบรรทัด `event: message` แล้วตามด้วย `data: <JSON>`
+ตัวอย่างต่อไปนี้แสดงเฉพาะส่วน JSON และจัดบรรทัดใหม่ให้อ่านง่าย
+
+ผลลัพธ์ของทุกเครื่องมืออยู่ใน `result.content[0].text` เป็นข้อความ สำหรับ `lightrag_list_documents` `lightrag_insert` และ `lightrag_delete` ข้อความนั้นเป็น JSON
+ตัวอย่างด้านล่างจึงแสดงค่า `text` ในรูป JSON ที่แปลงกลับแล้ว เพื่อให้อ่านง่าย
+
+### ดูรายการเครื่องมือ (`tools/list`)
+
+คำขอ:
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+```
+
+ผลลัพธ์ (ย่อ):
+
+```json
+{"jsonrpc": "2.0", "id": 1, "result": {"tools": [
+  {
+    "name": "lightrag_query",
+    "description": "ค้นหาและสรุปคำตอบจากคลังความรู้ LightRAG …",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "description": "คำถามหรือหัวข้อที่ต้องการค้นหาในคลังความรู้"},
+        "mode":  {"type": "string", "default": "hybrid", "enum": ["mix", "hybrid", "local", "global", "naive"]}
+      },
+      "required": ["query"]
+    },
+    "annotations": {"readOnlyHint": true, "openWorldHint": false}
+  },
+  {"name": "lightrag_list_documents", "…": "…"},
+  {"name": "lightrag_insert", "…": "…"}
+]}}
+```
+
+### ถามตอบ (`lightrag_query`)
+
+คำขอ:
+
+```json
+{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+  "name": "lightrag_query",
+  "arguments": {"query": "VRAM ที่ต้องใช้สำหรับ LLM ขนาด 7B", "mode": "mix"}
+}}
+```
+
+ผลลัพธ์ (คำตอบเป็นข้อความ Markdown):
+
+```json
+{"jsonrpc": "2.0", "id": 2, "result": {"isError": false, "content": [{"type": "text",
+  "text": "… VRAM ขั้นต่ำประมาณ 5-6 GB …\n\n### References\n- [1] report_VRAM_LLM_local_17-10-2026"}]}}
+```
+
+### เพิ่มเอกสาร (`lightrag_insert`)
+
+คำขอ:
+
+```json
+{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+  "name": "lightrag_insert",
+  "arguments": {"text": "# รายงานประจำเดือน\nยอดขายเดือนตุลาคม …", "description": "monthly report 2026-10"}
+}}
+```
+
+ค่า `text` ในผลลัพธ์:
+
+```json
+{
+  "status": "success",
+  "message": "Text successfully received. Processing will continue in background.",
+  "track_id": "insert_20261019_100002_9ab1390f",
+  "file_source": "monthly-report-2026-10"
+}
+```
+
+`file_source` คือชื่อเอกสารที่บันทึกจริง ซึ่งใช้ระบุเอกสารนี้ตอนลบได้
+
+### ดูรายการเอกสาร (`lightrag_list_documents`)
+
+คำขอ:
+
+```json
+{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {
+  "name": "lightrag_list_documents",
+  "arguments": {"page": 1, "page_size": 20, "status": ""}
+}}
+```
+
+ค่า `text` ในผลลัพธ์:
+
+```json
+{
+  "pagination": {"page": 1, "page_size": 20, "total_count": 3, "total_pages": 1, "has_next": false, "has_prev": false},
+  "status_counts": {"processed": 3, "all": 3},
+  "documents": [
+    {"id": "doc-9db02b2c032a71553ba9edc00386e506", "name": "bbc-news-summary-18-10-2026", "status": "processed",
+     "created_at": "2026-10-18T04:33:14", "characters": 456,
+     "summary": "# BBC News Summary - 18-10-2026 1. California Wildfires: …"}
+  ]
+}
+```
+
+เอกสารที่ประมวลผลไม่สำเร็จจะมี `"error": "<สาเหตุ>"` เพิ่มเข้ามา
+
+### ลบเอกสาร (`lightrag_delete`, ต้องเปิด `ENABLE_DELETE=true`)
+
+คำขอ (ระบุเป็นชื่อหรือรหัสก็ได้):
+
+```json
+{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {
+  "name": "lightrag_delete",
+  "arguments": {"documents": ["monthly-report-2026-10", "doc-9db02b2c032a71553ba9edc00386e506"]}
+}}
+```
+
+ค่า `text` ในผลลัพธ์:
+
+```json
+{
+  "lightrag": {"status": "deletion_started", "message": "Document deletion for 2 documents has been initiated. …",
+               "doc_id": "doc-b2478b58…, doc-9db02b2c…"},
+  "requested": {"monthly-report-2026-10": "doc-b2478b58…", "doc-9db02b2c032a71553ba9edc00386e506": "doc-9db02b2c…"},
+  "not_deleted": {}
+}
+```
+
+หากชื่อใดหาไม่พบหรือซ้ำกัน ชื่อนั้นจะอยู่ใน `not_deleted` พร้อมเหตุผล เช่น `{"twin": "2 documents share this name - delete by id: doc-ccc, doc-ddd"}`
+
+### ข้อผิดพลาด
+
+| กรณี | ผลลัพธ์ |
+|---|---|
+| ไม่ส่ง token หรือ token ผิด (เมื่อกำหนด `MCP_AUTH_TOKEN`) | HTTP 401 `{"error": "unauthorized"}` |
+| เรียกเครื่องมือที่ไม่มีหรือปิดไว้ | `"isError": true` และ `text` เป็น `Unknown tool: lightrag_delete` |
+| ไม่ส่งค่าที่จำเป็น | `"isError": true` และ `text` บอกชื่อค่าที่ขาด เช่น `text  Field required` |
+| LightRAG ปฏิเสธ key | `text` เป็น `[LightRAG error HTTP 403 - check LIGHTRAG_API_KEY …]: …` |
+| เชื่อมต่อ LightRAG ไม่ได้ | `text` เป็น `[LightRAG connection error: ConnectError - cannot reach LIGHTRAG_URL http://lightrag:9621]` |
+
+### ตรวจสถานะ (`GET /health`)
+
+```json
+{
+  "ok": true,
+  "lightrag_url": "http://lightrag:9621",
+  "key_configured": true,
+  "lightrag": {"reachable": true, "key_accepted": true, "http_status": 200},
+  "modes": ["mix", "hybrid", "local", "global", "naive"],
+  "default_mode": "hybrid",
+  "insert_enabled": true,
+  "delete_enabled": false,
+  "auth": false,
+  "problems": []
+}
+```
+
+เมื่อมีปัญหา `ok` จะเป็น `false` และ `problems` จะบอกสาเหตุพร้อมวิธีแก้ เช่น
+`"LightRAG refused LIGHTRAG_API_KEY - it must match LIGHTRAG_API_KEY of the LightRAG server"`
+
+### ทดลองด้วย curl
 
 ```bash
 curl http://127.0.0.1:8806/mcp \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"lightrag_query","arguments":{"query":"สรุปเอกสารในคลัง","mode":"hybrid"}}}'
 ```
-
-เปลี่ยน `"method":"tools/call"` เป็น `"method":"tools/list"` (และลบ `params` ออก) เพื่อดูรายการเครื่องมือที่เปิดใช้อยู่ทั้งหมด
 
 ## การปรับให้เหมาะกับคลังของคุณ
 
@@ -216,6 +376,15 @@ curl http://127.0.0.1:8806/mcp \
 - **`ENABLE_INSERT` และ `ENABLE_DELETE`** กำหนดว่า agent เพิ่มหรือลบเอกสารได้หรือไม่
 
 ## ความปลอดภัย
+
+ระบบนี้มีจุดที่ต้องป้องกัน 2 ชั้น
+
+1. **mcp-lightrag → LightRAG** ใช้ `LIGHTRAG_API_KEY` ซึ่ง**จำเป็นต้องกำหนด** หากเว้นว่าง ระบบจะไม่เริ่มทำงาน
+   เพราะ LightRAG ที่ไม่มี key จะให้ทุกคนที่เข้าถึงพอร์ตของ LightRAG อ่าน เพิ่ม และลบเอกสารได้โดยตรง
+   ควรใช้ key ที่สุ่มและยาวอย่างน้อย 32 ตัวอักษร ไม่ใช่ค่าที่เดาง่าย เช่น `1234` สร้างได้ด้วยคำสั่ง
+   `python -c "import secrets; print(secrets.token_urlsafe(32))"` แล้วใส่ค่าเดียวกันทั้งใน LightRAG server และในไฟล์ `.env` ของ mcp-lightrag
+2. **agent หรือเครื่องอื่น → mcp-lightrag** (พอร์ต 8806) ผู้ที่เรียกผ่านพอร์ตนี้ได้จะใช้คลังความรู้ได้โดยไม่ต้องรู้ key ของ LightRAG
+   จึงต้องปิดชั้นนี้ด้วย ตามรายละเอียดด้านล่าง
 
 - **ค่าเริ่มต้นไม่มีการยืนยันตัวตน** และเปิดให้เครื่องอื่นในเครือข่ายเข้าถึงได้ (`PUBLISH_ADDR=0.0.0.0`) ผู้ที่เข้าถึงพอร์ตนี้ได้จะค้นหาและเพิ่มเอกสารในคลังได้ทันที รวมทั้งลบเอกสารได้หากเปิด `ENABLE_DELETE`
   หากไม่จำเป็น ให้กำหนด `PUBLISH_ADDR=127.0.0.1` ซึ่ง agent ที่อยู่ใน docker network เดียวกันจะยังเรียกใช้ได้ตามปกติ หรือกำหนด `MCP_AUTH_TOKEN` เพื่อบังคับให้ผู้เรียกต้องส่ง token

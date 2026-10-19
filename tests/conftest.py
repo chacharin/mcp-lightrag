@@ -6,6 +6,7 @@ import importlib
 import httpx
 import pytest
 
+TEST_KEY = "test-key-not-real-0123"
 ENV_KEYS = ["LIGHTRAG_URL", "LIGHTRAG_API_KEY", "QUERY_MODES", "DEFAULT_MODE", "QUERY_TIMEOUT_SECONDS",
             "INSERT_TIMEOUT_SECONDS", "QUERY_EXTRA_PARAMS", "ENABLE_INSERT", "ENABLE_DELETE", "KB_DESCRIPTION",
             "MCP_HOST", "MCP_PORT", "MCP_AUTH_TOKEN"]
@@ -16,6 +17,7 @@ def clean_env(monkeypatch):
     """Every test starts from the code defaults."""
     for k in ENV_KEYS:
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("LIGHTRAG_API_KEY", TEST_KEY)      # required; tests that need another key set their own
 
 
 @pytest.fixture

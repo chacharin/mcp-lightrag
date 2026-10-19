@@ -5,7 +5,7 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-from tests.mcp_client import HEADERS, call, tools
+from tests.mcp_client import HEADERS, call, rpc, tools
 
 
 def test_default_tools(load_server):
@@ -15,6 +15,14 @@ def test_default_tools(load_server):
     assert mode["enum"] == ["mix", "hybrid", "local", "global", "naive"] and mode["default"] == "hybrid"
     assert t["lightrag_query"]["inputSchema"]["required"] == ["query"]
     assert t["lightrag_insert"]["inputSchema"]["required"] == ["text"]
+
+
+def test_results_are_sent_once(load_server, fake_lightrag):
+    server = load_server()
+    fake_lightrag(lambda r: httpx.Response(200, json={"response": "ok", "references": []}))
+    with TestClient(server.app) as c:
+        res = rpc(c, "tools/call", {"name": "lightrag_query", "arguments": {"query": "q"}})["result"]
+    assert res["content"] == [{"type": "text", "text": "ok"}] and "structuredContent" not in res
 
 
 def test_read_only_server_has_no_insert(load_server):
@@ -100,8 +108,8 @@ def test_health_explains_an_unreachable_lightrag(load_server, fake_lightrag):
     assert h["ok"] is False and any("does not answer" in p for p in h["problems"])
 
 
-def test_health_explains_an_empty_key_that_lightrag_needs(load_server, fake_lightrag):
-    server = load_server()
+def test_health_explains_a_refused_key(load_server, fake_lightrag):
+    server = load_server(LIGHTRAG_API_KEY="test-key-wrong")
     fake_lightrag(lambda r: httpx.Response(200 if r.url.path == "/health" else 401, json={}))
     h = health(server)
-    assert h["ok"] is False and any("it is empty" in p for p in h["problems"])
+    assert h["ok"] is False and any("refused" in p for p in h["problems"])

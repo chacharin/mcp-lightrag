@@ -15,9 +15,7 @@ _PLACEHOLDER_KEY = re.compile(r"x{6,}|change-?me|your[-_ ]?(api[-_ ]?)?key", re.
 
 
 def key_state(key: str) -> str:
-    """"empty", "placeholder" (still the value copied from .env.example) or "set"."""
-    if not key:
-        return "empty"
+    """"placeholder" (still the value copied from .env.example) or "set"."""
     return "placeholder" if _PLACEHOLDER_KEY.search(key) else "set"
 
 
@@ -30,6 +28,16 @@ def _f(name: str, default: str) -> float:
 
 def _bool(name: str, default: str) -> bool:
     return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _api_key() -> str:
+    """LIGHTRAG_API_KEY is required: a LightRAG server without a key lets anyone who reaches it read,
+    add and delete documents, so this server will not run against one."""
+    key = os.getenv("LIGHTRAG_API_KEY", "").strip()
+    if not key:
+        raise ValueError("LIGHTRAG_API_KEY is required - set it in .env to the LIGHTRAG_API_KEY of the LightRAG server "
+                         "(and give the LightRAG server a key if it has none)")
+    return key
 
 
 def _modes() -> tuple[list[str], str]:
@@ -81,7 +89,7 @@ class Settings:
         modes, default = _modes()
         return Settings(
             lightrag_url=os.getenv("LIGHTRAG_URL", "http://lightrag:9621").strip().rstrip("/"),
-            lightrag_api_key=os.getenv("LIGHTRAG_API_KEY", "").strip(),
+            lightrag_api_key=_api_key(),
             query_modes=modes,
             default_mode=default,
             query_timeout=_f("QUERY_TIMEOUT_SECONDS", "120"),

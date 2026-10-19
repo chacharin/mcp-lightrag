@@ -52,7 +52,6 @@ def test_enable_insert(monkeypatch, value, expected):
 
 
 @pytest.mark.parametrize("key,state", [
-    ("", "empty"),
     ("change-me", "placeholder"),                      # the value in .env.example
     ("xxxxxxxxxxxxxxxx", "placeholder"),
     ("YOUR_API_KEY", "placeholder"),
@@ -60,6 +59,13 @@ def test_enable_insert(monkeypatch, value, expected):
 ])
 def test_key_state(key, state):
     assert key_state(key) == state
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_missing_key_stops_start_up(monkeypatch, value):
+    monkeypatch.setenv("LIGHTRAG_API_KEY", value)
+    with pytest.raises(ValueError, match="LIGHTRAG_API_KEY is required"):
+        Settings.from_env()
 
 
 def test_secrets_are_not_in_repr(monkeypatch):
