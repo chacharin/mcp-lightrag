@@ -1,0 +1,23 @@
+# The image needs pyproject.toml, uv.lock and app/ only (see Dockerfile).
+.env
+.env.*
+.venv
+**/__pycache__
+**/.pytest_cache
+
+# tests run from the source tree, not inside the image
+tests/
+
+# documents
+README.md
+LICENSE
+
+# old snapshots kept only on the host
+_archive/
+_to_delete/
+*.zip
+*.bak
+*.bak-*
+*.tar.gz
+
+.git/

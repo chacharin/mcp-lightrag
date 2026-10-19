@@ -1,0 +1,3 @@
+# Keep LF inside the repository and in every checkout, on Windows too:
+# the image is built on Linux, and CRLF makes diffs noisy across machines.
+* text=auto eol=lf
