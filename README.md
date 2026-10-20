@@ -412,7 +412,7 @@ LightRAG ไม่รายงาน token ของ LLM ที่ตัวเ�
 - `component` `mcp-lightrag` คือการเรียกเครื่องมือของ agent ส่วน `lightrag` คือการเรียก LLM และ embedding ของ LightRAG server ผ่านมิเตอร์
 - การเรียกของ LightRAG ที่เกิดระหว่างการเรียกเครื่องมือหนึ่งครั้ง (ช่วงเวลาซ้อนกัน) คือส่วนหนึ่งของคำถามนั้น ส่วนที่เกิดภายหลัง เช่น การสร้างดัชนีหลัง `lightrag_insert` คืองานเบื้องหลัง
 - LightRAG ตอบจาก cache ได้ (`llm_response_cache`) คำถามที่เคยถามแล้วจึงอาจไม่มีการเรียก LLM เลย
-- ชื่อช่องข้อมูลเป็นแบบเดียวกับ plugin `usage-telemetry` ของ [harness-server](https://github.com/chacharin/harness-server) และ MCP ตัวอื่นของชุดนี้
+- ชื่อช่องข้อมูลเป็นแบบเดียวกับ plugin `usage-telemetry` ของ [osint-harness-profile](https://github.com/chacharin/osint-harness-profile) และ MCP ตัวอื่นของชุดนี้
 
 | ค่าของ `GET /usage` | ความหมาย |
 |---|---|
