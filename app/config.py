@@ -83,6 +83,10 @@ class Settings:
     host: str
     port: int
     auth_token: str = field(repr=False)
+    usage_dir: str = "/app/usage"
+    usage_log: bool = True
+    meter_upstream: str = ""
+    meter_timeout: float = 600
 
     @staticmethod
     def from_env() -> "Settings":
@@ -101,4 +105,8 @@ class Settings:
             host=os.getenv("MCP_HOST", "0.0.0.0"),
             port=int(_f("MCP_PORT", "8700")),
             auth_token=os.getenv("MCP_AUTH_TOKEN", "").strip(),
+            usage_dir=os.getenv("USAGE_DIR", "/app/usage").strip().rstrip("/") or "/app/usage",
+            usage_log=_bool("USAGE_LOG", "true"),
+            meter_upstream=os.getenv("METER_UPSTREAM", "").strip().rstrip("/"),
+            meter_timeout=_f("METER_TIMEOUT_SECONDS", "600"),
         )

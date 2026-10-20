@@ -4,7 +4,7 @@
 # - LightRAG must be on that network too; LIGHTRAG_URL in .env points at it
 # - publishes on ${PUBLISH_ADDR}:${PUBLISH_PORT} (default 0.0.0.0:8806 = reachable from other machines);
 #   set MCP_AUTH_TOKEN in .env so callers must present a token
-# - no volumes: the server keeps no state
+# - one volume: the usage log (tokens and timings of every call), read back through GET /usage
 # Every ${…} below is set in .env; the defaults here are generic, not tied to any one deployment.
 services:
   mcp-lightrag:
@@ -14,9 +14,14 @@ services:
     env_file: .env
     ports:
       - "${PUBLISH_ADDR:-0.0.0.0}:${PUBLISH_PORT:-8806}:8700"
+    volumes:
+      - "usage:/app/usage"
     networks:
       - agent_network
     restart: unless-stopped
+
+volumes:
+  usage:
 
 networks:
   agent_network:

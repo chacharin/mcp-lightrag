@@ -10,7 +10,8 @@ RUN --mount=from=ghcr.io/astral-sh/uv:0.13.1,source=/uv,target=/bin/uv \
     uv sync --frozen --no-dev --no-install-project
 
 COPY app/ ./app/
-RUN useradd --system --uid 10001 appuser
+# /app/usage holds the usage log (a docker volume in docker-compose.yml)
+RUN useradd --system --uid 10001 appuser && mkdir -p /app/usage && chown appuser /app/usage
 USER appuser
 EXPOSE 8700
 CMD ["/app/.venv/bin/python", "-m", "app.server"]

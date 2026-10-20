@@ -185,12 +185,14 @@ curl -X DELETE http://localhost:9621/documents/delete_document \
 
 ## รูปแบบ JSON ของคำขอและผลลัพธ์
 
-mcp-lightrag มี 2 route
+mcp-lightrag มี 4 route
 
 | Route | ใช้ทำอะไร |
 |---|---|
 | `POST /mcp` | เรียกเครื่องมือทั้งหมดตามมาตรฐาน MCP (JSON-RPC 2.0) agent ใช้ route นี้ |
 | `GET /health` | ตรวจว่าเชื่อมต่อ LightRAG ได้และ LightRAG ยอมรับ key หรือไม่ ไม่ต้องใช้ token |
+| `GET /usage` | ข้อมูลการใช้งาน: เวลาของการเรียกเครื่องมือทุกครั้ง และ token ของ LLM ที่ LightRAG เรียกผ่านมิเตอร์ (ใช้ token เดียวกับ `/mcp` หากกำหนด `MCP_AUTH_TOKEN`) |
+| `/meter/…` | มิเตอร์ (ไม่บังคับ): ทางผ่านของการเรียก LLM และ embedding ของ LightRAG server เพื่อนับ token (ดู[ข้อมูลการใช้งาน](#ข้อมูลการใช้งาน-get-usage-และมิเตอร์)) |
 
 ### การส่งคำขอไปที่ `/mcp`
 
@@ -353,12 +355,69 @@ Accept: application/json, text/event-stream
   "insert_enabled": true,
   "delete_enabled": false,
   "auth": false,
+  "usage_log": {"enabled": true, "dir": "/app/usage", "writable": true, "last_error": null},
+  "meter": {"enabled": true, "upstream": "https://openrouter.ai/api/v1"},
   "problems": []
 }
 ```
 
 เมื่อมีปัญหา `ok` จะเป็น `false` และ `problems` จะบอกสาเหตุพร้อมวิธีแก้ เช่น
 `"LightRAG refused LIGHTRAG_API_KEY - it must match LIGHTRAG_API_KEY of the LightRAG server"`
+
+### ข้อมูลการใช้งาน (`GET /usage`) และมิเตอร์
+
+ระบบบันทึกการเรียกเครื่องมือทุกครั้งลงไฟล์ `usage-<วันที่>.jsonl` ใน docker volume `usage` เพื่อใช้วิจัยและปรับประสิทธิภาพ
+ระเบียนมีเฉพาะเวลา ขนาด และจำนวน ไม่มีคำถาม คำตอบ หรือเนื้อหาเอกสาร
+
+LightRAG ไม่รายงาน token ของ LLM ที่ตัวเองเรียก ทั้งที่คำถามหนึ่งข้อมักเรียก LLM 2 ครั้ง (สกัดคำสำคัญและเขียนคำตอบ) และ embedding 1 ครั้ง
+และการเพิ่มเอกสารเรียก LLM อีกหลายครั้งเพื่อสกัดเอนทิตี หากต้องการนับ token เหล่านี้ ให้เปิด**มิเตอร์** ซึ่งเป็นทางผ่านให้ LightRAG เรียกผู้ให้บริการผ่าน mcp-lightrag
+
+1. ในไฟล์ `.env` ของ mcp-lightrag กำหนด endpoint จริงของผู้ให้บริการ แล้วสั่ง `docker compose up -d`
+
+   ```bash
+   METER_UPSTREAM=https://openrouter.ai/api/v1
+   ```
+
+2. ในไฟล์ `.env` ของ LightRAG server เปลี่ยนที่อยู่ของ LLM และ embedding ให้ชี้มาที่มิเตอร์ แล้วรีสตาร์ต LightRAG
+
+   ```bash
+   LLM_BINDING_HOST=http://mcp-lightrag:8700/meter
+   EMBEDDING_BINDING_HOST=http://mcp-lightrag:8700/meter
+   ```
+
+มิเตอร์ส่งทุกคำขอต่อไปยัง `METER_UPSTREAM` โดยไม่แก้ไขอะไร และใช้ API key ของ LightRAG เอง (mcp-lightrag ไม่เก็บ key นี้)
+มิเตอร์เรียกได้เฉพาะ `METER_UPSTREAM` จึงไม่ใช่ proxy เปิดที่ใครก็ใช้ได้ ข้อควรรู้คือเมื่อเปิดมิเตอร์ LightRAG จะเรียก LLM ได้เฉพาะตอนที่ mcp-lightrag ทำงานอยู่
+หากต้องการเลิกใช้ ให้เปลี่ยน `LLM_BINDING_HOST` และ `EMBEDDING_BINDING_HOST` กลับเป็นที่อยู่เดิมของผู้ให้บริการ
+
+ผลลัพธ์ของ `GET /usage` (ย่อ) หลังถามหนึ่งข้อขณะเปิดมิเตอร์:
+
+```json
+{
+  "schema": "harness-usage/1",
+  "environment": {"component": "mcp-lightrag", "version": "0.4.0", "host": "8b1c…", "cpu_count": 20, "mem_total_mb": 11816, "…": "…"},
+  "records": [
+    {"component": "lightrag", "kind": "llm_call", "tool": "lightrag-server", "model": "google/gemma-4-31b-it",
+     "duration_s": 3.425, "input_tokens": 691, "output_tokens": 34, "cost_usd": 8.066e-05, "status": "ok",
+     "detail": {"via": "meter", "http_status": 200, "request_chars": 2817, "response_chars": 913, "stream": false}},
+    {"component": "lightrag", "kind": "embedding_call", "model": "Qwen/Qwen3-Embedding-8B", "duration_s": 2.305,
+     "input_tokens": 20, "output_tokens": 0, "cost_usd": 2e-07, "detail": {"via": "meter", "inputs": 1, "…": "…"}},
+    {"component": "lightrag", "kind": "llm_call", "duration_s": 10.209, "input_tokens": 4685, "output_tokens": 604,
+     "cost_usd": 0.00067386, "status": "ok"},
+    {"component": "mcp-lightrag", "kind": "mcp_tool", "tool": "lightrag_query", "duration_s": 16.583, "status": "ok",
+     "detail": {"mode": "mix", "query_chars": 23, "result_chars": 2210}}
+  ]
+}
+```
+
+- `component` `mcp-lightrag` คือการเรียกเครื่องมือของ agent ส่วน `lightrag` คือการเรียก LLM และ embedding ของ LightRAG server ผ่านมิเตอร์
+- การเรียกของ LightRAG ที่เกิดระหว่างการเรียกเครื่องมือหนึ่งครั้ง (ช่วงเวลาซ้อนกัน) คือส่วนหนึ่งของคำถามนั้น ส่วนที่เกิดภายหลัง เช่น การสร้างดัชนีหลัง `lightrag_insert` คืองานเบื้องหลัง
+- LightRAG ตอบจาก cache ได้ (`llm_response_cache`) คำถามที่เคยถามแล้วจึงอาจไม่มีการเรียก LLM เลย
+- ชื่อช่องข้อมูลเป็นแบบเดียวกับ plugin `usage-telemetry` ของ [harness-server](https://github.com/chacharin/harness-server) และ MCP ตัวอื่นของชุดนี้
+
+| ค่าของ `GET /usage` | ความหมาย |
+|---|---|
+| `since`, `until` | ช่วงเวลา (epoch วินาที) หากไม่ระบุจะส่งทั้งหมด |
+| `limit` | จำนวนระเบียนสูงสุด (ล่าสุด) ค่าเริ่มต้น 50000 |
 
 ### ทดลองด้วย curl
 
@@ -379,6 +438,7 @@ curl http://127.0.0.1:8806/mcp \
 - **`QUERY_MODES` และ `DEFAULT_MODE`** กำหนดวิธีค้นหาที่ให้ agent เลือก และวิธีที่ใช้เมื่อ agent ไม่ได้ระบุ
 - **`QUERY_EXTRA_PARAMS`** ส่งค่าอื่นของ LightRAG ไปกับทุกการค้นหา เช่น `{"top_k": 40, "response_type": "Bullet Points"}`
 - **`ENABLE_INSERT` และ `ENABLE_DELETE`** กำหนดว่า agent เพิ่มหรือลบเอกสารได้หรือไม่
+- **`USAGE_LOG`, `USAGE_DIR` และ `METER_UPSTREAM`** การบันทึกข้อมูลการใช้งาน และมิเตอร์สำหรับนับ token ของ LightRAG
 
 ## ความปลอดภัย
 
@@ -395,6 +455,7 @@ curl http://127.0.0.1:8806/mcp \
   หากไม่จำเป็น ให้กำหนด `PUBLISH_ADDR=127.0.0.1` ซึ่ง agent ที่อยู่ใน docker network เดียวกันจะยังเรียกใช้ได้ตามปกติ หรือกำหนด `MCP_AUTH_TOKEN` เพื่อบังคับให้ผู้เรียกต้องส่ง token
 - เปิด `ENABLE_DELETE` เฉพาะเมื่อจำเป็น และควรสำรองข้อมูลของ LightRAG ไว้ก่อน
 - API key ของ LightRAG ถูกเก็บไว้ในไฟล์ `.env` เท่านั้น ไม่ถูกส่งให้ agent และไฟล์นี้จะไม่ถูกส่งขึ้น git
+- มิเตอร์ (`/meter/…`) ไม่ต้องใช้ `MCP_AUTH_TOKEN` เพราะ LightRAG ส่ง key ของผู้ให้บริการมาเอง ผู้ที่เรียกมิเตอร์ได้ต้องมี key ของผู้ให้บริการอยู่แล้ว และเรียกได้เฉพาะ `METER_UPSTREAM` หากไม่ใช้มิเตอร์ ให้เว้น `METER_UPSTREAM` ว่างไว้ (ค่าเริ่มต้น)
 
 ## สำหรับนักพัฒนา
 
@@ -404,7 +465,9 @@ curl http://127.0.0.1:8806/mcp \
 |---|---|
 | `config.py` | อ่านและตรวจสอบการตั้งค่าจาก `.env` |
 | `lightrag.py` | เรียก REST API ของ LightRAG และจัดรูปแบบผลลัพธ์ |
-| `server.py` | MCP server เครื่องมือทั้งหมด `/health` และการตรวจ token |
+| `server.py` | MCP server เครื่องมือทั้งหมด `/health`, `/usage` และการตรวจ token |
+| `usage.py` | บันทึกและอ่านข้อมูลการใช้งาน |
+| `meter.py` | มิเตอร์: ส่งการเรียก LLM ของ LightRAG ต่อไปยังผู้ให้บริการ และบันทึก token |
 
 ชุดทดสอบจำลอง LightRAG ด้วย `httpx.MockTransport` จึงไม่ต้องมี LightRAG จริงและไม่เสียค่าใช้จ่าย สั่งทดสอบผ่าน Docker ได้โดยไม่ต้องติดตั้ง Python:
 

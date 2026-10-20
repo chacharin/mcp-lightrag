@@ -1,6 +1,6 @@
 [project]
 name = "mcp-lightrag"
-version = "0.3.0"
+version = "0.4.0"
 description = "MCP server (streamable HTTP) that lets AI agents query and add documents to a LightRAG knowledge base"
 readme = "README.md"
 authors = [{ name = "Chacharin Lertyosbordin", email = "lertyosbordin@outlook.com" }]
